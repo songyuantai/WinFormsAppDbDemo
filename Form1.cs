@@ -1,4 +1,3 @@
-using Microsoft.Data.SqlClient;
 using System.Data;
 using System.Data.Common;
 
@@ -63,98 +62,86 @@ namespace WinFormsAppDbDemo
 
         private void btnAdd_Click(object sender, EventArgs e)
         {
-            var date = dateTimePicker1.Value;
-            var seqNo = GetSeqNo(date.Year, date.Month);
-            var no = new SerialNos()
-            {
-                Year = date.Year,
-                Month = date.Month,
-                SerialNo = date.ToString("yyyyMM") + seqNo.ToString().PadLeft(2, '0'),
-                Sequnce = seqNo
-            };
-
-            int tryout = 0;
-            while (true)
-            {
-                if (!AddNo(no, out bool redo))
-                {
-                    //最多尝试5次
-                    if (redo && tryout <= 5)
-                    {
-                        tryout++;
-                        continue;
-                    }
-
-                    MessageBox.Show("添加失败，请检查！");
-                    return;
-                }
-                else
-                {
-                    MessageBox.Show("添加成功！");
-                    LoadData();
-                    return;
-                }
-            }
-
-
+            AddWithLock();
+            LoadData();
         }
 
-        private bool AddNo(SerialNos no, out bool redo)
+        private bool AddWithLock()
         {
-            redo = false;
             try
             {
-                var sql = @"insert into serial_nos(year_num, month_num, serial_no, seq_no) values
+                var date = dateTimePicker1.Value;
+                var success = false;
+                var helper = new DatabaseHelper(CONNECT_STR, DatabaseProvider.MySql);
+                helper.ExecuteInTransaction((db, conn, tran) =>
+                {
+                    var seqNo = GetSeqNo(db, conn, tran, date.Year, date.Month);
+                    var no = new SerialNos()
+                    {
+                        Year = date.Year,
+                        Month = date.Month,
+                        SerialNo = date.ToString("yyyyMM") + seqNo.ToString().PadLeft(2, '0'),
+                        Sequnce = seqNo
+                    };
+
+                    var sql = @"insert into serial_nos(year_num, month_num, serial_no, seq_no) values
                 (@year_num, @month_num, @serial_no, @seq_no)";
 
-                var parameters = new DbParameter[]
-                {
-                    _db.CreateDbParameter("year_num", no.Year ?? 0)!,
-                    _db.CreateDbParameter("month_num", no.Month ?? 0)!,
-                    _db.CreateDbParameter("serial_no", no.SerialNo ?? string.Empty)!,
-                    _db.CreateDbParameter("seq_no", no.Sequnce ?? 0)!,
-                };
+                    int rows = 0;
+                    var parameters = new DbParameter[]
+                    {
+                    db.CreateDbParameter("year_num", no.Year ?? 0)!,
+                    db.CreateDbParameter("month_num", no.Month ?? 0)!,
+                    db.CreateDbParameter("serial_no", no.SerialNo ?? string.Empty)!,
+                    db.CreateDbParameter("seq_no", no.Sequnce ?? 0)!,
+                    };
 
-                var num = _db.ExecuteNonQuery(sql, CommandType.Text, parameters);
+                    if (seqNo == 1)
+                    {
+                        //db.ExecuteNonQuery("LOCK TABLES serial_nos WRITE");
+                        rows = db.ExecuteNonQuery(conn, tran, sql, CommandType.Text, parameters);
+                        //db.ExecuteNonQuery("UNLOCK TABLES");
+                    }
+                    else
+                    {
+                        var sqlLock = "select * from serial_nos where seq_no = @seq_no for update";
+                        db.ExecuteNonQuery(conn, tran, sqlLock, CommandType.Text,
+                            db.CreateDbParameter("seq_no", seqNo - 1)!);
+                        rows = db.ExecuteNonQuery(conn, tran, sql, CommandType.Text, parameters);
+                    }
+                    success = rows > 0;
+                });
 
-                return num > 0;
-            }
-            catch (SqlException sqlEx)
-            {
-                if (sqlEx.Number == 2627)
-                {
-                    redo = true;
-
-                }
-                return false;
+                return success;
             }
             catch (Exception)
             {
 
+                //throw;
                 return false;
             }
 
         }
 
-        private int GetMaxSeqNo(int year, int month)
-        {
-            var sql = "select max(seq_no) from serial_nos where year_num = @year_num and month_num = @month_num";
-            var parameters = new DbParameter[]
-            {
-                _db.CreateDbParameter("year_num", year)!,
-                _db.CreateDbParameter("month_num", month)!,
-            };
+        //private int GetMaxSeqNo(int year, int month)
+        //{
+        //    var sql = "select max(seq_no) from serial_nos where year_num = @year_num and month_num = @month_num";
+        //    var parameters = new DbParameter[]
+        //    {
+        //        _db.CreateDbParameter("year_num", year)!,
+        //        _db.CreateDbParameter("month_num", month)!,
+        //    };
 
-            var value = _db.ExecuteScalar(sql, CommandType.Text, parameters);
-            if (int.TryParse(value.ToString(), out int num))
-            {
-                return num + 1;
-            }
+        //    var value = _db.ExecuteScalar(sql, CommandType.Text, parameters);
+        //    if (int.TryParse(value.ToString(), out int num))
+        //    {
+        //        return num + 1;
+        //    }
 
-            return 1;
-        }
+        //    return 1;
+        //}
 
-        private int GetSeqNo(int year, int month)
+        private int GetSeqNo(DatabaseHelper db, DbConnection connection, DbTransaction tran, int year, int month)
         {
             var sql = @"select min(a.seq_no) from serial_nos a
                 left join serial_nos b on a.seq_no + 1 = b.seq_no
@@ -162,17 +149,39 @@ namespace WinFormsAppDbDemo
 
             var parameters = new DbParameter[]
             {
-                _db.CreateDbParameter("year_num", year)!,
-                _db.CreateDbParameter("month_num", month)!,
+                    db.CreateDbParameter("year_num", year)!,
+                    db.CreateDbParameter("month_num", month)!,
             };
 
-            var value = _db.ExecuteScalar(sql, CommandType.Text, parameters);
+            var value = db.ExecuteScalar(connection, tran, sql, CommandType.Text, parameters);
             if (int.TryParse(value.ToString(), out int num))
             {
                 return num + 1;
             }
 
             return 1;
+        }
+
+        private bool Exsits(int year, int month, int seqNum)
+        {
+            var sql = @"select count(*) from serial_nos 
+                where year_num = @year_num and month_num = @month_num and seq_no = @seq_no";
+
+            var parameters = new DbParameter[]
+            {
+                    _db.CreateDbParameter("year_num", year)!,
+                    _db.CreateDbParameter("month_num", month)!,
+                    _db.CreateDbParameter("seq_no", seqNum)!,
+            };
+
+            var value = _db.ExecuteScalar(sql, CommandType.Text, parameters);
+            if (int.TryParse(value.ToString(), out int num))
+            {
+                return num > 0;
+            }
+
+            return false;
+
         }
 
         private void btnDel_Click(object sender, EventArgs e)
@@ -213,6 +222,38 @@ namespace WinFormsAppDbDemo
                 //释放
             });
 
+        }
+
+        private async void btnTest_Click(object sender, EventArgs e)
+        {
+            var tasks = new List<Task>();
+
+            for (int i = 0; i < 10; i++)
+            {
+                int id = i;
+                tasks.Add(Task.Run(() =>
+                {
+                    while (!AddWithLock())
+                    {
+                        //失败自动重试
+                        Thread.Sleep(100);
+                    }
+                }));
+            }
+
+            await Task.WhenAll(tasks);
+            LoadData();
+            MessageBox.Show("已并发插入10条记录！");
+        }
+
+        private void btnClear_Click(object sender, EventArgs e)
+        {
+            var sqlDel = $"delete from serial_nos where year_num = @year_num and month_num = @month_num";
+            _db.ExecuteNonQuery(sqlDel, CommandType.Text,
+                _db.CreateDbParameter("year_num", dateTimePicker1.Value.Year)!,
+                _db.CreateDbParameter("month_num", dateTimePicker1.Value.Month)!);
+            LoadData();
+            MessageBox.Show("清空完成！");
         }
     }
 }
