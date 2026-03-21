@@ -308,7 +308,7 @@ namespace WinFormsAppDbDemo
             using var connection = CreateConnection();
             connection.ConnectionString = _connectionString;
             connection.Open();
-            using var transaction = connection.BeginTransaction();
+            using var transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
             try
             {
                 action(this, connection, transaction);

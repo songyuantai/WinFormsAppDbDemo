@@ -3,11 +3,11 @@ using System.Data.Common;
 
 namespace WinFormsAppDbDemo
 {
-    public partial class Form1 : Form
+    public partial class FormMain : Form
     {
         private const string CONNECT_STR = "Server=127.0.0.1;Database=costdb;User Id=root;Password=root;Port=3306;";
         private static readonly DatabaseHelper _db = new(CONNECT_STR, DatabaseProvider.MySql);
-        public Form1()
+        public FormMain()
         {
             InitializeComponent();
         }
@@ -227,23 +227,25 @@ namespace WinFormsAppDbDemo
         private async void btnTest_Click(object sender, EventArgs e)
         {
             var tasks = new List<Task>();
-
-            for (int i = 0; i < 10; i++)
+            var semphere = new SemaphoreSlim(5); //限制并发数为3
+            for (int i = 0; i < 50; i++)
             {
                 int id = i;
                 tasks.Add(Task.Run(() =>
                 {
+                    semphere.Wait(); //等待信号量
                     while (!AddWithLock())
                     {
                         //失败自动重试
                         Thread.Sleep(100);
                     }
+                    semphere.Release(); //释放信号量
                 }));
             }
 
             await Task.WhenAll(tasks);
             LoadData();
-            MessageBox.Show("已并发插入10条记录！");
+            MessageBox.Show("插入数据完成！");
         }
 
         private void btnClear_Click(object sender, EventArgs e)
