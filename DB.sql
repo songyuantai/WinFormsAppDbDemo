@@ -14,7 +14,9 @@ create table serial_nos
 
 drop table serial_nos;
 
-create unique index uk_seq_no on serial_nos(seq_no);
+drop index uk_seq_no on serial_nos;
+
+create unique index uk_seq_no on serial_nos(year_num, month_num, seq_no);
 
 select min(a.seq_no) from serial_nos a
 left join serial_nos b on a.seq_no + 1 = b.seq_no

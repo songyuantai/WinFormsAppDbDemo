@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics;
 
 namespace WinFormsAppDbDemo
 {
@@ -90,10 +91,10 @@ namespace WinFormsAppDbDemo
                     int rows = 0;
                     var parameters = new DbParameter[]
                     {
-                    db.CreateDbParameter("year_num", no.Year ?? 0)!,
-                    db.CreateDbParameter("month_num", no.Month ?? 0)!,
-                    db.CreateDbParameter("serial_no", no.SerialNo ?? string.Empty)!,
-                    db.CreateDbParameter("seq_no", no.Sequnce ?? 0)!,
+                        db.CreateDbParameter("year_num", no.Year ?? 0)!,
+                        db.CreateDbParameter("month_num", no.Month ?? 0)!,
+                        db.CreateDbParameter("serial_no", no.SerialNo ?? string.Empty)!,
+                        db.CreateDbParameter("seq_no", no.Sequnce ?? 0)!,
                     };
 
                     if (seqNo == 1)
@@ -104,9 +105,9 @@ namespace WinFormsAppDbDemo
                     }
                     else
                     {
-                        var sqlLock = "select * from serial_nos where seq_no = @seq_no for update";
-                        db.ExecuteNonQuery(conn, tran, sqlLock, CommandType.Text,
-                            db.CreateDbParameter("seq_no", seqNo - 1)!);
+                        //var sqlLock = "select * from serial_nos where seq_no = @seq_no for update";
+                        //db.ExecuteNonQuery(conn, tran, sqlLock, CommandType.Text,
+                        //    db.CreateDbParameter("seq_no", seqNo - 1)!);
                         rows = db.ExecuteNonQuery(conn, tran, sql, CommandType.Text, parameters);
                     }
                     success = rows > 0;
@@ -114,13 +115,11 @@ namespace WinFormsAppDbDemo
 
                 return success;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-
-                //throw;
+                Debug.WriteLine(ex.Message);
                 return false;
             }
-
         }
 
         //private int GetMaxSeqNo(int year, int month)
@@ -144,7 +143,7 @@ namespace WinFormsAppDbDemo
         private int GetSeqNo(DatabaseHelper db, DbConnection connection, DbTransaction tran, int year, int month)
         {
             var sql = @"select min(a.seq_no) from serial_nos a
-                left join serial_nos b on a.seq_no + 1 = b.seq_no
+                left join serial_nos b on a.seq_no + 1 = b.seq_no and a.year_num = b.year_num and a.month_num = b.month_num
                 where b.id is null and a.year_num = @year_num and a.month_num = @month_num";
 
             var parameters = new DbParameter[]
@@ -224,28 +223,30 @@ namespace WinFormsAppDbDemo
 
         }
 
-        private async void btnTest_Click(object sender, EventArgs e)
+        private void btnTest_Click(object sender, EventArgs e)
         {
             var tasks = new List<Task>();
-            var semphere = new SemaphoreSlim(5); //限制并发数为3
-            for (int i = 0; i < 50; i++)
+            var semphere = new SemaphoreSlim(8); //限制并发数
+            for (int i = 0; i < 100; i++)
             {
-                int id = i;
                 tasks.Add(Task.Run(() =>
                 {
-                    semphere.Wait(); //等待信号量
+                    semphere.Wait();
                     while (!AddWithLock())
                     {
                         //失败自动重试
-                        Thread.Sleep(100);
+                        Thread.Sleep(200);
                     }
-                    semphere.Release(); //释放信号量
+                    semphere.Release();
                 }));
             }
 
-            await Task.WhenAll(tasks);
-            LoadData();
-            MessageBox.Show("插入数据完成！");
+            Task.WhenAll(tasks).ContinueWith((t, o) =>
+            {
+                LoadData();
+                MessageBox.Show("插入数据完成！");
+            }, null);
+
         }
 
         private void btnClear_Click(object sender, EventArgs e)
@@ -256,6 +257,11 @@ namespace WinFormsAppDbDemo
                 _db.CreateDbParameter("month_num", dateTimePicker1.Value.Month)!);
             LoadData();
             MessageBox.Show("清空完成！");
+        }
+
+        private void dateTimePicker1_ValueChanged(object sender, EventArgs e)
+        {
+            LoadData();
         }
     }
 }

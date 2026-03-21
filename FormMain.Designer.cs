@@ -70,6 +70,7 @@
             dateTimePicker1.Name = "dateTimePicker1";
             dateTimePicker1.Size = new Size(226, 38);
             dateTimePicker1.TabIndex = 3;
+            dateTimePicker1.ValueChanged += dateTimePicker1_ValueChanged;
             // 
             // btnTest
             // 
@@ -91,7 +92,7 @@
             btnClear.UseVisualStyleBackColor = true;
             btnClear.Click += btnClear_Click;
             // 
-            // Form1
+            // FormMain
             // 
             AutoScaleDimensions = new SizeF(14F, 31F);
             AutoScaleMode = AutoScaleMode.Font;
@@ -102,7 +103,7 @@
             Controls.Add(btnDel);
             Controls.Add(btnAdd);
             Controls.Add(listView1);
-            Name = "Form1";
+            Name = "FormMain";
             Text = "数据库并发测试";
             Load += Form1_Load;
             ResumeLayout(false);
